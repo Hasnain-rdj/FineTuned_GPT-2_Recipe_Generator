@@ -26,50 +26,43 @@ REPO_OWNER = "Hasnain-rdj"
 REPO_NAME = "FineTuned_GPT-2_Recipe_Generator"
 RELEASE_TAG = "v1.0.1"
 
-def download_and_extract_file(url, extract_to=".", filename=""):
-    """Download a file from URL"""
+def download_and_extract_file(url, filename=""):
+    """Download and extract a ZIP file from URL"""
     try:
-        st.info(f"Downloading {filename}...")
-        response = requests.get(url, stream=True, timeout=300)
+        st.info(f"📥 Downloading {filename}...")
+        response = requests.get(url, stream=True, timeout=600)
         response.raise_for_status()
         
-        # Save the file
-        file_path = Path(filename)
         total_size = int(response.headers.get('content-length', 0))
         
-        with open(file_path, 'wb') as f:
-            if total_size == 0:
-                f.write(response.content)
-            else:
-                downloaded = 0
-                for chunk in response.iter_content(chunk_size=8192):
+        # Download to temporary file
+        temp_file = Path(filename)
+        downloaded = 0
+        
+        with open(temp_file, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
                     downloaded += len(chunk)
                     f.write(chunk)
+                    if total_size > 0:
+                        progress = (downloaded / total_size) * 100
+                        if downloaded % (1024 * 1024) == 0:  # Update every MB
+                            st.write(f"Progress: {progress:.1f}%")
         
         st.success(f"✅ Downloaded {filename} ({total_size / 1024 / 1024:.1f} MB)")
         
-        # Extract if it's a zip file
-        if filename.endswith('.zip'):
-            st.info(f"Extracting {filename}...")
-            with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_to)
-            os.remove(file_path)  # Remove zip after extraction
-            st.success(f"✅ Extracted {filename}")
-        elif filename.endswith('.rar'):
-            st.warning(f"⚠️ {filename} is a RAR file. Please extract manually or re-upload as ZIP.")
-            st.markdown(f"""
-            **RAR files require manual extraction:**
-            1. Download {filename} from the release page
-            2. Extract it using WinRAR or 7-Zip
-            3. Upload the extracted folder to your Streamlit deployment
-            
-            Or better: Re-upload the files as `.zip` instead of `.rar` in your GitHub release.
-            """)
-            return False
+        # Extract ZIP file
+        st.info(f"📦 Extracting {filename}...")
+        with zipfile.ZipFile(temp_file, 'r') as zip_ref:
+            zip_ref.extractall(".")
+        
+        # Clean up
+        temp_file.unlink()
+        st.success(f"✅ Extracted {filename}")
         
         return True
     except Exception as e:
-        st.error(f"Download failed: {str(e)}")
+        st.error(f"❌ Download failed for {filename}: {str(e)}")
         return False
 
 def download_models_from_release():
@@ -83,25 +76,47 @@ def download_models_from_release():
     if models_exist and tokenizer_exist and peft_exist:
         return True
     
-    st.warning("📥 Model files not found. Attempting to download from GitHub Release...")
-    st.info("""
-    **Note:** The model files are stored as RAR archives in the GitHub release.
-    For Streamlit Cloud deployment, please:
+    st.warning("📥 Model files not found. Downloading from GitHub Release...")
     
-    1. Download the RAR files from: https://github.com/Hasnain-rdj/FineTuned_GPT-2_Recipe_Generator/releases/tag/v1.0.0
-    2. Extract them on your computer using WinRAR/7-Zip
-    3. Re-create ZIP files (not RAR):
-       - Right-click folder → Send to → Compressed (zipped) folder
-    4. Upload the new ZIP files to a new GitHub release
-    5. Update the code to use ZIP files
+    # Define files to download (ZIP format from v1.0.1)
+    files_to_download = []
     
-    **OR** use the base GPT-2 model (not fine-tuned) by skipping this step.
-    """)
+    if not models_exist:
+        files_to_download.append("models.zip")
+    if not tokenizer_exist:
+        files_to_download.append("tokenizer.zip")
+    if not peft_exist:
+        files_to_download.append("peft_model.zip")
     
-    # For now, we'll use base GPT-2 since RAR files can't be extracted automatically
-    st.warning("⚠️ Using base GPT-2 model (not fine-tuned) since RAR extraction is not supported in Streamlit Cloud.")
+    if not files_to_download:
+        return True
     
-    return True  # Continue with base model
+    st.info(f"Will download {len(files_to_download)} file(s): {', '.join(files_to_download)}")
+    
+    # Download each file
+    success_count = 0
+    for filename in files_to_download:
+        download_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/download/{RELEASE_TAG}/{filename}"
+        
+        if download_and_extract_file(download_url, filename):
+            success_count += 1
+        else:
+            st.error(f"❌ Failed to download {filename}")
+            st.markdown(f"""
+            **Manual Download Instructions:**
+            1. Visit: [Release Page](https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/tag/{RELEASE_TAG})
+            2. Download: `{filename}`
+            3. Extract to your deployment directory
+            4. Restart the application
+            """)
+    
+    if success_count == len(files_to_download):
+        st.success("🎉 All model files downloaded successfully!")
+        st.info("⚠️ Please refresh the page to load the models.")
+        return True
+    else:
+        st.warning("⚠️ Some files failed to download. Using base GPT-2 model (not fine-tuned).")
+        return True  # Continue with base model
 
 # Page config
 st.set_page_config(
