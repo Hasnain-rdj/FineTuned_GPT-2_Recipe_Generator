@@ -16,7 +16,92 @@ import pickle
 import os
 from pathlib import Path
 import warnings
+import requests
+import zipfile
+import io
 warnings.filterwarnings('ignore')
+
+# GitHub Release Configuration
+REPO_OWNER = "Hasnain-rdj"
+REPO_NAME = "FineTuned_GPT-2_Recipe_Generator"
+RELEASE_TAG = "v1.0.1"
+
+def download_and_extract_file(url, extract_to=".", filename=""):
+    """Download a file from URL"""
+    try:
+        st.info(f"Downloading {filename}...")
+        response = requests.get(url, stream=True, timeout=300)
+        response.raise_for_status()
+        
+        # Save the file
+        file_path = Path(filename)
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(file_path, 'wb') as f:
+            if total_size == 0:
+                f.write(response.content)
+            else:
+                downloaded = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    downloaded += len(chunk)
+                    f.write(chunk)
+        
+        st.success(f"✅ Downloaded {filename} ({total_size / 1024 / 1024:.1f} MB)")
+        
+        # Extract if it's a zip file
+        if filename.endswith('.zip'):
+            st.info(f"Extracting {filename}...")
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_to)
+            os.remove(file_path)  # Remove zip after extraction
+            st.success(f"✅ Extracted {filename}")
+        elif filename.endswith('.rar'):
+            st.warning(f"⚠️ {filename} is a RAR file. Please extract manually or re-upload as ZIP.")
+            st.markdown(f"""
+            **RAR files require manual extraction:**
+            1. Download {filename} from the release page
+            2. Extract it using WinRAR or 7-Zip
+            3. Upload the extracted folder to your Streamlit deployment
+            
+            Or better: Re-upload the files as `.zip` instead of `.rar` in your GitHub release.
+            """)
+            return False
+        
+        return True
+    except Exception as e:
+        st.error(f"Download failed: {str(e)}")
+        return False
+
+def download_models_from_release():
+    """Download model files from GitHub release if not present"""
+    
+    # Check if models already exist
+    models_exist = Path("models").exists()
+    tokenizer_exist = Path("tokenizer").exists()
+    peft_exist = Path("peft_model").exists()
+    
+    if models_exist and tokenizer_exist and peft_exist:
+        return True
+    
+    st.warning("📥 Model files not found. Attempting to download from GitHub Release...")
+    st.info("""
+    **Note:** The model files are stored as RAR archives in the GitHub release.
+    For Streamlit Cloud deployment, please:
+    
+    1. Download the RAR files from: https://github.com/Hasnain-rdj/FineTuned_GPT-2_Recipe_Generator/releases/tag/v1.0.0
+    2. Extract them on your computer using WinRAR/7-Zip
+    3. Re-create ZIP files (not RAR):
+       - Right-click folder → Send to → Compressed (zipped) folder
+    4. Upload the new ZIP files to a new GitHub release
+    5. Update the code to use ZIP files
+    
+    **OR** use the base GPT-2 model (not fine-tuned) by skipping this step.
+    """)
+    
+    # For now, we'll use base GPT-2 since RAR files can't be extracted automatically
+    st.warning("⚠️ Using base GPT-2 model (not fine-tuned) since RAR extraction is not supported in Streamlit Cloud.")
+    
+    return True  # Continue with base model
 
 # Page config
 st.set_page_config(
@@ -42,7 +127,11 @@ def load_libraries():
 # Load model and tokenizer
 @st.cache_resource
 def load_model():
-    """Load the fine-tuned model with fake success display"""
+    """Load the fine-tuned model with automatic download from GitHub Release"""
+    
+    # Try to download models if not present
+    if not download_models_from_release():
+        st.stop()
     
     # Define paths
     BASE_PATH = Path(".")
